@@ -12,12 +12,14 @@ class TeohVisit_Plugin implements Typecho_Plugin_Interface
     public static function activate()
     {
         Typecho_Plugin::factory('Widget_Archive')->singleHandle = array('TeohVisit_Plugin', 'recordVisit');
+        Helper::addPanel(1, 'TeohVisit/manage.php', '访客统计', '查看访客统计', 'administrator');
         self::createTable();
         return _t('插件已经激活');
     }
 
     public static function deactivate()
     {
+        Helper::removePanel(1, 'TeohVisit/manage.php');
         return _t('插件已经禁用');
     }
 
@@ -33,13 +35,19 @@ class TeohVisit_Plugin implements Typecho_Plugin_Interface
     {
     }
 
-    public static function recordVisit($archive)
+    public static function recordVisit()
     {
         $db = Typecho_Db::get();
         $prefix = $db->getPrefix();
         $today = date('Y-m-d');
 
         $ip = $_SERVER['REMOTE_ADDR'];
+        $userAgent = $_SERVER['HTTP_USER_AGENT'];
+        $referer = isset($_SERVER['HTTP_REFERER']) ? $_SERVER['HTTP_REFERER'] : 'Direct';
+
+        // 异步获取地理位置
+        $location = self::getLocation($ip);
+
         $todayVisit = $db->fetchRow($db->select()->from($prefix . 'stat')->where('date = ?', $today));
 
         if ($todayVisit) {
@@ -54,7 +62,7 @@ class TeohVisit_Plugin implements Typecho_Plugin_Interface
             $db->query($db->insert($prefix . 'stat')->rows(array('date' => $today, 'views' => 1, 'unique_visitors' => 1)));
         }
 
-        $db->query($db->insert($prefix . 'visitor')->rows(array('date' => $today, 'ip' => $ip)));
+        $db->query($db->insert($prefix . 'visitor')->rows(array('date' => $today, 'ip' => $ip, 'user_agent' => $userAgent, 'referer' => $referer, 'city' => $location['city'], 'region' => $location['region'], 'country' => $location['country'])));
     }
 
     public static function createTable()
@@ -74,6 +82,11 @@ class TeohVisit_Plugin implements Typecho_Plugin_Interface
                 `id` int(10) NOT NULL AUTO_INCREMENT,
                 `date` date NOT NULL,
                 `ip` varchar(45) NOT NULL,
+                `user_agent` varchar(255) NOT NULL,
+                `referer` varchar(255) NOT NULL,
+                `city` varchar(255) NOT NULL,
+                `region` varchar(255) NOT NULL,
+                `country` varchar(255) NOT NULL,
                 PRIMARY KEY (`id`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8;"
         ];
@@ -134,5 +147,23 @@ class TeohVisit_Plugin implements Typecho_Plugin_Interface
     {
         // 检查插件是否启用的逻辑，可以根据具体情况调整
         return true; // 假设插件已启用
+    }
+
+    private static function getLocation($ip)
+    {
+        // 使用IP地址获取地理位置的逻辑，这里可以调用第三方API
+        // 例如使用ipinfo.io API
+        $url = "https://ipinfo.io/{$ip}/json";
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_URL, $url);
+        $response = curl_exec($ch);
+        curl_close($ch);
+        $data = json_decode($response, true);
+        return [
+            'city' => isset($data['city']) ? $data['city'] : 'Unknown',
+            'region' => isset($data['region']) ? $data['region'] : 'Unknown',
+            'country' => isset($data['country']) ? $data['country'] : 'Unknown'
+        ];
     }
 }
